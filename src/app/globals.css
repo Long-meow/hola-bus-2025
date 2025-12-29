@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Thêm css nền cho đỡ mỏi mắt */
+body {
+  background-color: #f8f9fa; /* Màu xám nhạt */
+  color: #1a1a1a;
+}
