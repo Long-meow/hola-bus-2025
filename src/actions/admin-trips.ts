@@ -3,20 +3,47 @@
 import { createAdminClient } from '@/utils/supabase/admin';
 import { revalidatePath } from 'next/cache';
 
+// 👇 HÀM NÀY ĐÃ ĐƯỢC SỬA: Dùng createAdminClient để fix lỗi
+async function uploadTripImage(file: File, oldUrl?: string) {
+  // Nếu không có file mới hoặc file rỗng -> Trả về link cũ (nếu có) hoặc chuỗi rỗng
+  if (!file || file.size === 0) return oldUrl || '';
+
+  const supabase = createAdminClient();
+  const fileExt = file.name.split('.').pop();
+  // Đặt tên file random để tránh trùng
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+  // Upload vào bucket 'trip-images'
+  const { error } = await supabase.storage.from('trip-images').upload(fileName, file);
+  
+  if (error) {
+    console.error('Upload lỗi:', error);
+    // Nếu lỗi upload thì vẫn trả về link cũ để không bị mất ảnh
+    return oldUrl || '';
+  }
+
+  // Lấy public URL
+  const { data } = supabase.storage.from('trip-images').getPublicUrl(fileName);
+  return data.publicUrl;
+}
+
 // 1. TẠO CHUYẾN XE
 export async function createTrip(formData: FormData) {
   try {
     const supabase = createAdminClient();
     
+    // 👇 SỬA ĐOẠN NÀY: Xử lý upload ảnh trước
+    const imageFile = formData.get('image') as File; // Lấy file từ input name="image"
+    const imageUrl = await uploadTripImage(imageFile); // Upload và lấy link
+
     const tripData = {
       origin: formData.get('origin') as string,
       destination: formData.get('destination') as string,
       departure_time: formData.get('departure_time') as string,
       price: Number(formData.get('price')),
-      // ❌ ĐÃ XÓA DÒNG total_seats Ở ĐÂY
-      image_url: formData.get('image_url') as string,       // Link ảnh bìa
-      route_details: formData.get('route_details') as string, // Lộ trình văn bản
-      waypoints: formData.get('waypoints') as string,       // Các điểm dừng Google Map
+      image_url: imageUrl,                    // 👇 Lưu link ảnh vừa upload
+      route_details: formData.get('route_details') as string,
+      waypoints: formData.get('waypoints') as string,
     };
 
     console.log("🚀 Đang tạo chuyến xe:", tripData);
@@ -38,17 +65,24 @@ export async function createTrip(formData: FormData) {
 }
 
 // 2. CẬP NHẬT
+// Lưu ý: tripId bạn đang để là number, hãy chắc chắn DB của bạn id là int8. Nếu là UUID thì đổi thành string.
 export async function updateTrip(tripId: number, formData: FormData) {
   try {
     const supabase = createAdminClient();
     
+    // 👇 SỬA ĐOẠN NÀY: Xử lý upload ảnh mới hoặc giữ ảnh cũ
+    const newImageFile = formData.get('image') as File;
+    const oldImageUrl = formData.get('old_image_url') as string;
+    
+    // Hàm này sẽ tự quyết định: Có ảnh mới thì up, không thì trả về oldImageUrl
+    const imageUrl = await uploadTripImage(newImageFile, oldImageUrl);
+
     const updates = {
       origin: formData.get('origin') as string,
       destination: formData.get('destination') as string,
       departure_time: formData.get('departure_time') as string,
       price: Number(formData.get('price')),
-      // ❌ ĐÃ XÓA DÒNG total_seats Ở ĐÂY
-      image_url: formData.get('image_url') as string,
+      image_url: imageUrl, // 👇 Lưu link ảnh (mới hoặc cũ)
       route_details: formData.get('route_details') as string,
       waypoints: formData.get('waypoints') as string,
     };
@@ -71,7 +105,7 @@ export async function updateTrip(tripId: number, formData: FormData) {
   }
 }
 
-// 3. XÓA
+// 3. XÓA (Giữ nguyên)
 export async function deleteTrip(tripId: number) {
   try {
     const supabase = createAdminClient();
@@ -93,7 +127,7 @@ export async function deleteTrip(tripId: number) {
   }
 }
 
-// 4. XÓA VÉ (BOOKING)
+// 4. XÓA VÉ (Giữ nguyên)
 export async function deleteBooking(bookingId: string) {
   try {
     const supabase = createAdminClient();
@@ -106,20 +140,19 @@ export async function deleteBooking(bookingId: string) {
       return { error: error.message };
     }
 
-    revalidatePath('/admin/trips/[id]', 'page'); // Refresh lại trang chi tiết chuyến
+    revalidatePath('/admin/trips/[id]', 'page'); 
     return { success: true };
     
   } catch (err: any) {
     return { error: err.message };
   }
-
 }
-// 5. CHECK-IN VÉ  
+
+// 5. CHECK-IN VÉ (Giữ nguyên)
 export async function checkInTicket(paymentCode: string) {
   try {
     const supabase = createAdminClient();
     
-    // 1. Tìm vé
     const { data: booking, error } = await supabase
       .from('bookings')
       .select('*, trips(destination, departure_time)')
@@ -130,29 +163,25 @@ export async function checkInTicket(paymentCode: string) {
       return { error: 'Vé không tồn tại hoặc mã sai!' };
     }
 
-    // 2. Kiểm tra điều kiện
     if (booking.status === 'PENDING') return { error: 'Vé CHƯA THANH TOÁN!' };
     if (booking.status === 'CANCELLED') return { error: 'Vé ĐÃ BỊ HỦY!' };
     
-    // 3. UPDATE GIỜ CHECK-IN (QUAN TRỌNG)
-    // Nếu đã check-in rồi thì thôi, hoặc update lại giờ mới nhất cũng được
     const checkInTime = new Date().toISOString();
     
     const { error: updateError } = await supabase
       .from('bookings')
-      .update({ check_in_at: checkInTime }) // <--- Ghi vào DB
+      .update({ check_in_at: checkInTime }) 
       .eq('id', booking.id);
 
     if (updateError) return { error: 'Lỗi cập nhật DB: ' + updateError.message };
 
-    // 4. Trả về thành công
     return { 
       success: true, 
       booking: {
         ...booking,
         trip_destination: booking.trips.destination,
         trip_time: booking.trips.departure_time,
-        check_in_at: checkInTime // Trả về để UI hiển thị ngay nếu cần
+        check_in_at: checkInTime 
       } 
     };
 

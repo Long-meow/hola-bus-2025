@@ -16,6 +16,15 @@ export default function TripEditor({ trip, bookings }: { trip?: any, bookings?: 
   const [destination, setDestination] = useState(trip?.destination || '');
   const [waypoints, setWaypoints] = useState(trip?.waypoints || '');
   const [loading, setLoading] = useState(false);
+  
+  // 👇 1. THÊM ĐOẠN NÀY (Để xử lý ảnh)
+  const [previewUrl, setPreviewUrl] = useState<string>(trip?.image_url || '');
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
 
   // --- HÀM XỬ LÝ SUBMIT (TẠO / SỬA CHUYẾN XE) ---
   const handleSubmit = async (formData: FormData) => {
@@ -174,18 +183,43 @@ export default function TripEditor({ trip, bookings }: { trip?: any, bookings?: 
                 <div className="mt-6 pt-6 border-t border-slate-100 space-y-5">
                     <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Thông tin mở rộng</h3>
 
-                    {/* 1. LINK ẢNH BÌA */}
+                    {/* 1. ẢNH BÌA (ĐÃ SỬA: Upload File thay vì nhập Link) */}
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Link Ảnh bìa (URL)</label>
-                        <input 
-                            name="image_url" 
-                            type="url" 
-                            // Dùng trip?.image_url để nếu là sửa thì hiện ảnh cũ, tạo mới thì trống
-                            defaultValue={trip?.image_url || ''} 
-                            placeholder="https://..."
-                            className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-orange-500 outline-none transition text-sm"
-                        />
-                        <p className="text-xs text-slate-400 mt-1">Copy link ảnh từ Facebook/Unsplash dán vào đây.</p>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Ảnh bìa chuyến xe</label>
+                        
+                        {/* Input ẩn để giữ link ảnh cũ nếu không chọn ảnh mới */}
+                        {trip && <input type="hidden" name="old_image_url" value={trip.image_url} />}
+
+                        <div className="flex items-start gap-4 p-3 bg-white border border-slate-300 rounded-xl">
+                            {/* Khu vực xem trước ảnh */}
+                            <div className="w-24 h-16 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex-shrink-0">
+                                {previewUrl ? (
+                                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">No Image</div>
+                                )}
+                            </div>
+
+                            {/* Nút chọn file */}
+                            <div className="flex-1">
+                                <input 
+                                    type="file" 
+                                    name="image" 
+                                    accept="image/*"
+                                    onChange={handleImageChange}
+                                    className="block w-full text-sm text-slate-500
+                                    file:mr-3 file:py-2 file:px-4
+                                    file:rounded-full file:border-0
+                                    file:text-xs file:font-bold
+                                    file:bg-orange-50 file:text-orange-700
+                                    hover:file:bg-orange-100 file:cursor-pointer
+                                    cursor-pointer"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1 ml-1">
+                                    Hỗ trợ: JPG, PNG. Dung lượng tối đa 5MB.
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     {/* 2. LỘ TRÌNH VĂN BẢN (Route Details) */}

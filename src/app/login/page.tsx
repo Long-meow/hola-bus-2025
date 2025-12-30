@@ -2,14 +2,16 @@ import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: { message: string };
+export default async function LoginPage(props: {
+  searchParams: Promise<{ message: string }>;
 }) {
+  // 👇 1. GIẢI NÉN PROMISE (FIX LỖI NEXT.JS 15)
+  const searchParams = await props.searchParams;
+  const message = searchParams?.message;
+
   const supabase = await createClient();
 
-  // Nếu đã đăng nhập rồi thì đá về trang chủ, không cho vào trang login nữa
+  // Nếu đã đăng nhập rồi thì đá về trang chủ
   const { data: { session } } = await supabase.auth.getSession();
   if (session) {
     return redirect('/');
@@ -19,13 +21,20 @@ export default async function LoginPage({
   const signInWithGoogle = async () => {
     'use server';
     const supabase = await createClient();
-    const origin = (await headers()).get('origin');
+    
+    // 👇 2. LẤY ORIGIN CHUẨN ĐỂ KHÔNG BỊ CHUYỂN HƯỚNG SAI
+    const headersList = await headers();
+    const origin = headersList.get('origin') || headersList.get('host') || 'http://localhost:3000';
+    
+    // Nếu origin không có http/https (thường là localhost), tự thêm vào
+    const protocol = origin.includes('localhost') ? 'http' : 'https';
+    const finalOrigin = origin.startsWith('http') ? origin : `${protocol}://${origin}`;
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // Sau khi Google xác thực xong, nó sẽ trả về đường dẫn này
-        redirectTo: `${origin}/auth/callback`,
+        // Sau khi Google xong, quay về đúng nơi đã gọi nó (Local về Local, Vercel về Vercel)
+        redirectTo: `${finalOrigin}/auth/callback`,
       },
     });
 
@@ -56,9 +65,10 @@ export default async function LoginPage({
           </button>
         </form>
         
-        {searchParams?.message && (
+        {/* 👇 3. SỬ DỤNG BIẾN ĐÃ AWAIT */}
+        {message && (
           <p className="mt-4 p-4 bg-red-100 text-red-700 text-center rounded-lg">
-            {searchParams.message}
+            {message}
           </p>
         )}
       </div>
